@@ -1,0 +1,101 @@
+name: CI
+
+on:
+  pull_request:
+    paths-ignore:
+      - '**.md'
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**.md'
+  workflow_dispatch:
+
+# A newer push to the same branch or pull request makes the older run pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Lint, test, check dist/
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+
+      # Dependencies' install scripts are not needed to lint, test or build.
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Lint (TypeScript, ESLint, Prettier)
+        run: npm run lint
+
+      # dist/index.js is what runs: it must be what the sources build to.
+      - name: Check that dist/ is up to date
+        run: npm run check-dist
+
+      # Unit tests and the bundle run like a runner runs it, against a stand-in API: no network,
+      # no API key.
+      - name: Run tests
+        run: npm test
+
+  action:
+    name: Run the action from this checkout
+    needs: check
+    runs-on: ubuntu-latest
+    env:
+      # Empty when the secret is not set, and in pull requests from forks (they get no secrets).
+      HAS_KEY: ${{ secrets.CONVERTER_STUDIO_API_KEY != '' }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: No API key
+        if: env.HAS_KEY != 'true'
+        run: echo "::notice::The CONVERTER_STUDIO_API_KEY secret is not available, so the action was not run against Converter Studio."
+
+      # Two real conversions (2 credits): a picture to WebP and a Word document to PDF.
+      - name: PNG to WebP
+        id: webp
+        if: env.HAS_KEY == 'true'
+        uses: ./
+        with:
+          api-key: ${{ secrets.CONVERTER_STUDIO_API_KEY }}
+          files: test/fixtures/*.png
+          to: webp
+          output-dir: ${{ runner.temp }}/converted
+
+      - name: DOCX to PDF
+        id: pdf
+        if: env.HAS_KEY == 'true'
+        uses: ./
+        with:
+          api-key: ${{ secrets.CONVERTER_STUDIO_API_KEY }}
+          files: test/fixtures/sample.docx
+          to: pdf
+          output-dir: ${{ runner.temp }}/converted
+
+      - name: Check the results
+        if: env.HAS_KEY == 'true'
+        env:
+          WEBP_MAP: ${{ steps.webp.outputs.map }}
+          PDF_FILES: ${{ steps.pdf.outputs.files }}
+          OUT: ${{ runner.temp }}/converted
+        run: |
+          set -eu
+          echo "map: $WEBP_MAP"
+          echo "files: $PDF_FILES"
+          test "$(head -c 4 "$OUT/sample.webp")" = RIFF
+          test "$(head -c 12 "$OUT/sample.webp" | tail -c 4)" = WEBP
+          test "$(head -c 5 "$OUT/sample.pdf")" = '%PDF-'
+          echo "Both results are what they should be."

@@ -1,0 +1,58 @@
+{
+  "name": "converter-studio-action",
+  "version": "1.0.0",
+  "private": true,
+  "description": "GitHub Action that converts files in a workflow with the Converter Studio API: images, documents, PDFs, video, audio, e-books and more (67 formats).",
+  "license": "MIT",
+  "type": "module",
+  "homepage": "https://converter.studio/developers",
+  "author": {
+    "name": "Converter Studio",
+    "email": "support@converter.studio",
+    "url": "https://converter.studio"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tariksucu/converter-studio-action.git"
+  },
+  "bugs": {
+    "url": "https://github.com/tariksucu/converter-studio-action/issues",
+    "email": "support@converter.studio"
+  },
+  "keywords": [
+    "github-action",
+    "actions",
+    "converter-studio",
+    "file-converter",
+    "file-conversion",
+    "webp",
+    "avif",
+    "pdf",
+    "ocr"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "check-dist": "node build.mjs --check",
+    "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit && eslint . && prettier --check .",
+    "format": "prettier --write .",
+    "test": "node --test --test-reporter=spec \"test/*.test.ts\""
+  },
+  "dependencies": {
+    "@actions/core": "3.0.1",
+    "@actions/glob": "0.7.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/node": "24.19.2",
+    "esbuild": "0.28.2",
+    "eslint": "10.14.0",
+    "globals": "17.14.0",
+    "prettier": "3.10.1",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.73.0"
+  }
+}

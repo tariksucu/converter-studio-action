@@ -1,0 +1,68 @@
+name: Converter Studio File Converter
+description: 'Convert files in a workflow with Converter Studio: images to WebP or AVIF, documents to PDF, OCR, video and audio.'
+author: Converter Studio
+
+branding:
+  icon: refresh-cw
+  color: blue
+
+inputs:
+  api-key:
+    description: >-
+      Your Converter Studio API key (from https://converter.studio/account#api-keys). Store it as a
+      repository secret, for example CONVERTER_STUDIO_API_KEY, and pass that secret here.
+    required: true
+  files:
+    description: >-
+      The files to convert: paths and glob patterns relative to the workspace, one a line. A line
+      that starts with `!` leaves files out; a folder means every file in it.
+    required: true
+  to:
+    description: The format to convert to, such as `webp`, `avif`, `jpg`, `pdf`, `docx`, `txt`, `mp4` or `mp3`.
+    required: true
+  options:
+    description: >-
+      Conversion options as a JSON object, as the API takes them, for example
+      `{"quality": "balanced", "maxKb": 300}` or `{"ocr": true}`. See https://converter.studio/developers.
+    required: false
+    default: ''
+  output-dir:
+    description: >-
+      Where to write the results. Empty: next to each source file. Otherwise results keep their
+      folders below the patterns' common folder.
+    required: false
+    default: ''
+  if-exists:
+    description: >-
+      What to do when a result's file already exists: `skip` (keep it and don't convert that file,
+      so no credits are spent), `overwrite` (replace it) or `fail` (stop before converting anything).
+    required: false
+    default: skip
+  concurrency:
+    description: How many files to convert at once (1 to 10).
+    required: false
+    default: '4'
+  max-credits:
+    description: >-
+      The most credits one file's conversion may cost. A file that would cost more is not converted
+      (nothing is charged for it). Long videos may need more than the default.
+    required: false
+    default: '20'
+  base-url:
+    description: The address of the Converter Studio API.
+    required: false
+    default: https://converter.studio/api
+
+outputs:
+  files:
+    description: The files that were written, one path a line, relative to the workspace.
+  map:
+    description: 'A JSON object from each converted source file to its result, for example {"img/a.png": "img/a.webp"}.'
+  skipped:
+    description: A JSON array of the source files that were not converted because their result already existed.
+  failed:
+    description: A JSON array of the source files that could not be converted.
+
+runs:
+  using: node24
+  main: dist/index.js
