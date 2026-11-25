@@ -214,7 +214,7 @@ can hold characters a shell would read as code.
 
 ## Limits and costs
 
-- Conversions use your account's credits. Free accounts get 13 credits a day; most pictures and
+- Conversions use your account's credits. Free accounts get 25 credits a day; most pictures and
   documents cost 1 credit, audio and video are priced by their length (video also by its frame
   size). A file that fails to convert costs nothing. Plans with more credits, larger files and
   longer media are on the [pricing page](https://converter.studio/pricing).
