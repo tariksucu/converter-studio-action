@@ -78,9 +78,9 @@ export interface PlanInput {
 
 export interface Plan {
   readonly tasks: Task[];
-  /** Results that exist already and are kept (`if-exists: skip`). */
+  /** Results that exist already and are kept (`if-exists: skip`, or up to date with `changed`). */
   readonly skipped: { readonly source: string; readonly destination: string }[];
-  /** Results that exist already, for `if-exists: fail`. */
+  /** Results that exist already and whose sources are in `tasks` (`fail`, `overwrite`, `changed`). */
   readonly existing: { readonly source: string; readonly destination: string }[];
   /** Files that are not converted, and why. */
   readonly refused: { readonly source: string; readonly message: string }[];

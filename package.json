@@ -1,6 +1,6 @@
 {
   "name": "converter-studio-action",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "description": "GitHub Action that converts files in a workflow with the Converter Studio API: images, documents, PDFs, video, audio, e-books and more (67 formats).",
   "license": "MIT",

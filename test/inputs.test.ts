@@ -73,6 +73,17 @@ describe('readSettings', () => {
     );
   });
 
+  it('takes if-exists: changed, and names every choice when one is wrong', () => {
+    assert.equal(
+      readSettings(inputs({ ...minimal, 'if-exists': ' Changed ' }), workspace).ifExists,
+      'changed',
+    );
+    assert.throws(
+      () => readSettings(inputs({ ...minimal, 'if-exists': 'newer' }), workspace),
+      /'if-exists' input must be 'skip', 'overwrite', 'fail', 'changed', not 'newer'/,
+    );
+  });
+
   it('refuses empty files, unknown if-exists and numbers out of range', () => {
     const bad: Record<string, string>[] = [
       { files: ' \n# only a comment\n' },

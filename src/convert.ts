@@ -53,7 +53,10 @@ export interface Converted {
   /** Where the result was written. */
   readonly destination: string;
   readonly credits: number | null;
+  /** The result's size. */
   readonly bytes: number;
+  /** The source's size. */
+  readonly sourceBytes: number;
 }
 
 /** A file name the API takes: at most 255 characters, keeping its extension. */
@@ -199,9 +202,11 @@ export async function convertFile(
   const extension = (view.outputName && extensionOf(view.outputName)) || task.extension;
   const destination =
     extension === task.extension ? task.destination : join(task.dir, `${task.stem}.${extension}`);
+  // `changed` replaces a result it found out of date, whichever of its names it has.
   if (
     destination !== task.destination &&
     settings.ifExists !== 'overwrite' &&
+    settings.ifExists !== 'changed' &&
     existsSync(destination)
   ) {
     throw new ConversionError(
@@ -222,7 +227,7 @@ export async function convertFile(
       );
     }
     await rename(partial, destination);
-    return { source: task.source, destination, credits: view.credits, bytes };
+    return { source: task.source, destination, credits: view.credits, bytes, sourceBytes: size };
   } catch (error) {
     if (error instanceof ApiError) throw new ConversionError(error.message, error.code, error.hint);
     throw error;

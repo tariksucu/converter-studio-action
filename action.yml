@@ -35,7 +35,11 @@ inputs:
   if-exists:
     description: >-
       What to do when a result's file already exists: `skip` (keep it and don't convert that file,
-      so no credits are spent), `overwrite` (replace it) or `fail` (stop before converting anything).
+      so no credits are spent; it goes by the name only, so an edited source keeps its old result),
+      `overwrite` (replace it), `fail` (stop before converting anything) or `changed` (convert it
+      again only when its source's content, `to` or `options` changed since it was made: the action
+      keeps a `.converter-studio.json` manifest of source hashes and settings in each folder of
+      results; commit it with the results).
     required: false
     default: skip
   concurrency:
@@ -55,11 +59,11 @@ inputs:
 
 outputs:
   files:
-    description: The files that were written, one path a line, relative to the workspace.
+    description: The results that were written, one path a line, relative to the workspace (not the `.converter-studio.json` manifests).
   map:
     description: 'A JSON object from each converted source file to its result, for example {"img/a.png": "img/a.webp"}.'
   skipped:
-    description: A JSON array of the source files that were not converted because their result already existed.
+    description: A JSON array of the source files that were not converted because their result already existed (with `if-exists` `changed`, and was up to date).
   failed:
     description: A JSON array of the source files that could not be converted.
 

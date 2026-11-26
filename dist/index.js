@@ -21829,8 +21829,8 @@ var Path = class {
         let remaining = itemPath;
         let dir = dirname2(remaining);
         while (dir !== remaining) {
-          const basename5 = path3.basename(remaining);
-          this.segments.unshift(basename5);
+          const basename7 = path3.basename(remaining);
+          this.segments.unshift(basename7);
           remaining = dir;
           dir = dirname2(remaining);
         }
@@ -22311,8 +22311,8 @@ function create(patterns, options) {
 }
 
 // src/main.ts
-import { existsSync as existsSync3, statSync } from "node:fs";
-import { dirname as dirname4, isAbsolute as isAbsolute2, relative as relative2, resolve as resolve3, sep as sep6 } from "node:path";
+import { existsSync as existsSync4, statSync } from "node:fs";
+import { basename as basename6, dirname as dirname5, isAbsolute as isAbsolute2, relative as relative3, resolve as resolve3, sep as sep7 } from "node:path";
 
 // src/api.ts
 import { createWriteStream } from "node:fs";
@@ -22321,7 +22321,7 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
 // src/version.ts
-var VERSION = "1.0.0";
+var VERSION = "1.1.0";
 var CLIENT_NAME = `github-action/${VERSION}`;
 
 // src/api.ts
@@ -22842,7 +22842,7 @@ async function convertFile(client, task, settings, sleep) {
   if (view.status !== "done" || !view.downloadUrl) throw unfinished(view);
   const extension = view.outputName && extensionOf(view.outputName) || task.extension;
   const destination = extension === task.extension ? task.destination : join3(task.dir, `${task.stem}.${extension}`);
-  if (destination !== task.destination && settings.ifExists !== "overwrite" && existsSync2(destination)) {
+  if (destination !== task.destination && settings.ifExists !== "overwrite" && settings.ifExists !== "changed" && existsSync2(destination)) {
     throw new ConversionError(
       `The result is a ${extension.toUpperCase()} file, and ${basename4(destination)} already exists, so it was not saved`,
       "exists",
@@ -22861,7 +22861,7 @@ async function convertFile(client, task, settings, sleep) {
       );
     }
     await rename2(partial, destination);
-    return { source: task.source, destination, credits: view.credits, bytes };
+    return { source: task.source, destination, credits: view.credits, bytes, sourceBytes: size2 };
   } catch (error2) {
     if (error2 instanceof ApiError) throw new ConversionError(error2.message, error2.code, error2.hint);
     throw error2;
@@ -22872,7 +22872,7 @@ async function convertFile(client, task, settings, sleep) {
 
 // src/inputs.ts
 import { resolve as resolve2 } from "node:path";
-var IF_EXISTS = ["skip", "overwrite", "fail"];
+var IF_EXISTS = ["skip", "overwrite", "fail", "changed"];
 var DEFAULT_BASE_URL = "https://converter.studio/api";
 var DEFAULT_CONCURRENCY = 4;
 var MAX_CONCURRENCY = 10;
@@ -22980,6 +22980,148 @@ function readSettings(input, workspace) {
   };
 }
 
+// src/manifest.ts
+import { createHash } from "node:crypto";
+import { createReadStream, existsSync as existsSync3 } from "node:fs";
+import { readFile, rename as rename3, rm as rm4, writeFile as writeFile2 } from "node:fs/promises";
+import { basename as basename5, dirname as dirname4, join as join4, relative as relative2, sep as sep6 } from "node:path";
+var MANIFEST_NAME = ".converter-studio.json";
+var MANIFEST_VERSION = 1;
+var ABOUT = "Written by the Converter Studio GitHub Action (if-exists: changed): the source and settings each result in this folder was made from. Commit it with the results; delete it to convert them again.";
+function canonical(value) {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value).filter(([, v]) => v !== void 0).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0);
+    return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonical(v)}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+function settingsHash(to, options) {
+  const rest = { ...options };
+  delete rest.password;
+  return createHash("sha256").update(canonical({ to, options: rest })).digest("hex");
+}
+async function fileHash(path6) {
+  const hash = createHash("sha256");
+  for await (const chunk of createReadStream(path6)) hash.update(chunk);
+  return hash.digest("hex");
+}
+function staleness(record, sha256, settings) {
+  if (!record) return `${MANIFEST_NAME} has no record of what it was made from`;
+  if (record.sha256 !== sha256) return "its source changed";
+  if (record.settings !== settings) return "'to' or 'options' changed";
+  return void 0;
+}
+var Manifests = class {
+  // Promises, so files converted at the same time in one folder share one manifest.
+  folders = /* @__PURE__ */ new Map();
+  changed = /* @__PURE__ */ new Set();
+  warn;
+  constructor(warn = () => {
+  }) {
+    this.warn = warn;
+  }
+  folder(dir) {
+    let manifest = this.folders.get(dir);
+    if (!manifest) {
+      manifest = this.read(join4(dir, MANIFEST_NAME));
+      this.folders.set(dir, manifest);
+    }
+    return manifest;
+  }
+  async read(path6) {
+    const empty = { about: ABOUT, version: MANIFEST_VERSION, results: {} };
+    if (!existsSync3(path6)) return empty;
+    try {
+      const parsed = JSON.parse(await readFile(path6, "utf8"));
+      if (parsed.version !== MANIFEST_VERSION || !parsed.results || typeof parsed.results !== "object")
+        throw new Error(`unknown version ${String(parsed.version)}`);
+      return { ...empty, results: { ...parsed.results } };
+    } catch (error2) {
+      this.warn(
+        `${path6} could not be read (${error2.message}); its results are converted again and it is written anew.`
+      );
+      return empty;
+    }
+  }
+  /** The record of a result (an absolute path), if its folder's manifest has one. */
+  async get(result) {
+    const record = (await this.folder(dirname4(result))).results[basename5(result)];
+    return record && typeof record.sha256 === "string" && typeof record.settings === "string" ? record : void 0;
+  }
+  /** Notes what a result was made from. */
+  async set(result, source, sha256, settings) {
+    const dir = dirname4(result);
+    const manifest = await this.folder(dir);
+    manifest.results[basename5(result)] = {
+      source: relative2(dir, source).split(sep6).join("/"),
+      sha256,
+      settings
+    };
+    this.changed.add(dir);
+  }
+  /**
+   * Writes the manifests that changed (whole, through a temporary file), without the records of
+   * results that are no longer there, and returns their paths.
+   */
+  async save() {
+    const written = [];
+    for (const dir of [...this.changed].sort()) {
+      const manifest = await this.folder(dir);
+      const results = {};
+      for (const name of Object.keys(manifest.results).sort()) {
+        if (existsSync3(join4(dir, name))) results[name] = manifest.results[name];
+      }
+      const path6 = join4(dir, MANIFEST_NAME);
+      const partial = `${path6}.${process.pid}.part`;
+      try {
+        await writeFile2(
+          partial,
+          `${JSON.stringify({ about: ABOUT, version: MANIFEST_VERSION, results }, null, 2)}
+`
+        );
+        await rename3(partial, path6);
+      } finally {
+        await rm4(partial, { force: true });
+      }
+      written.push(path6);
+    }
+    this.changed.clear();
+    return written;
+  }
+};
+async function keepUpToDate(plan, manifests, settings, hash = fileHash) {
+  const existing = new Map(plan.existing.map((e) => [e.source, e.destination]));
+  const hashes = /* @__PURE__ */ new Map();
+  const kept = [];
+  const again = [];
+  for (const task of plan.tasks) {
+    const sha256 = await hash(task.source);
+    const found = existing.get(task.source);
+    if (found === void 0) {
+      hashes.set(task.source, sha256);
+      continue;
+    }
+    const reason = staleness(await manifests.get(found), sha256, settings);
+    if (reason === void 0) kept.push({ source: task.source, destination: found });
+    else {
+      hashes.set(task.source, sha256);
+      again.push({ source: task.source, destination: found, reason });
+    }
+  }
+  const keep = new Set(kept.map((k) => k.source));
+  return {
+    plan: {
+      ...plan,
+      tasks: plan.tasks.filter((t) => !keep.has(t.source)),
+      skipped: [...plan.skipped, ...kept],
+      existing: plan.existing.filter((e) => !keep.has(e.source))
+    },
+    hashes,
+    again
+  };
+}
+
 // src/main.ts
 var STOPS_ALL = /* @__PURE__ */ new Set([
   "invalidApiKey",
@@ -22989,11 +23131,19 @@ var STOPS_ALL = /* @__PURE__ */ new Set([
   "tooManyUnconverted"
 ]);
 function shown(path6, workspace) {
-  const below = relative2(workspace, path6);
+  const below = relative3(workspace, path6);
   const result = below && !below.startsWith("..") && !isAbsolute2(below) ? below : path6;
-  return result.split(sep6).join("/");
+  return result.split(sep7).join("/");
 }
 var size = (bytes) => bytes < 1e3 ? `${bytes} B` : bytes < 1e6 ? `${(bytes / 1e3).toFixed(1)} kB` : `${(bytes / 1e6).toFixed(1)} MB`;
+function sizeSummary(results) {
+  if (results.length === 0) return void 0;
+  const before = results.reduce((sum, r) => sum + r.sourceBytes, 0);
+  const after = results.reduce((sum, r) => sum + r.bytes, 0);
+  const change = before > 0 ? Math.round((after - before) / before * 100) : 0;
+  const credits2 = results.reduce((sum, r) => sum + (r.credits ?? 0), 0);
+  return `Sizes: ${size(before)} of sources \u2192 ${size(after)} of results (${change > 0 ? "+" : ""}${change}%), ${credits2 === 1 ? "1 credit" : `${credits2} credits`}.`;
+}
 async function eachLimited(items, limit, work, stop) {
   const notStarted = [];
   let next = 0;
@@ -23010,7 +23160,7 @@ async function eachLimited(items, limit, work, stop) {
 function searchRoots(globber) {
   return globber.getSearchPaths().map((path6) => {
     try {
-      return statSync(path6).isFile() ? dirname4(path6) : path6;
+      return statSync(path6).isFile() ? dirname5(path6) : path6;
     } catch {
       return path6;
     }
@@ -23032,6 +23182,14 @@ function setOutputs(results, plan, failed, workspace) {
   setOutput("skipped", JSON.stringify((plan?.skipped ?? []).map((s) => show(s.source))));
   setOutput("failed", JSON.stringify([...failed].sort().map(show)));
 }
+async function saveManifests(manifests, show) {
+  const written = await manifests?.save() ?? [];
+  if (written.length > 0) {
+    info(
+      `Recorded what the results were made from in ${written.map(show).join(", ")}: commit ${written.length === 1 ? "it" : "them"} with the results.`
+    );
+  }
+}
 async function run() {
   const workspace = resolve3(process.env.GITHUB_WORKSPACE || process.cwd());
   const show = (path6) => shown(path6, workspace);
@@ -23046,6 +23204,7 @@ async function run() {
   const results = [];
   const failed = [];
   let plan;
+  const manifests = settings.ifExists === "changed" ? new Manifests((message) => warning(message)) : null;
   try {
     const client = new ConverterStudio({
       baseUrl: settings.baseUrl,
@@ -23053,7 +23212,7 @@ async function run() {
       onRetry: (reason, waitMs) => info(`Converter Studio: ${reason}; trying again in ${Math.ceil(waitMs / 1e3)} s`)
     });
     const globber = await create(settings.files, { matchDirectories: false });
-    const sources = [...new Set((await globber.glob()).map((path6) => resolve3(path6)))].sort();
+    const sources = [...new Set((await globber.glob()).map((path6) => resolve3(path6)))].filter((path6) => basename6(path6) !== MANIFEST_NAME).sort();
     if (sources.length === 0) {
       throw new InputError(
         `No files match the 'files' input:
@@ -23085,7 +23244,7 @@ Paths and patterns start at ${workspace}. Patterns are case-sensitive on Linux a
       extension,
       alternates: target?.category === "image" ? ["zip"] : [],
       ifExists: settings.ifExists,
-      exists: (path6) => existsSync3(path6),
+      exists: (path6) => existsSync4(path6),
       caseInsensitive: process.platform === "win32" || process.platform === "darwin",
       refuse: (source) => {
         const from = target ? formatOfFile(formats, source) : void 0;
@@ -23101,6 +23260,21 @@ Nothing was converted.`
     }
     for (const { source, destination } of plan.skipped) {
       info(`Skipped ${show(source)}: ${show(destination)} already exists`);
+    }
+    const settingsKey = settingsHash(to, settings.options);
+    let hashes = /* @__PURE__ */ new Map();
+    if (manifests) {
+      const checked = await keepUpToDate(plan, manifests, settingsKey);
+      for (const { source, destination } of checked.plan.skipped.slice(plan.skipped.length)) {
+        info(
+          `Skipped ${show(source)}: ${show(destination)} is up to date (same source and settings)`
+        );
+      }
+      for (const { source, destination, reason } of checked.again) {
+        info(`Converting ${show(source)} again (${show(destination)}: ${reason})`);
+      }
+      plan = checked.plan;
+      hashes = checked.hashes;
     }
     for (const { source, message } of plan.refused) {
       failed.push(source);
@@ -23123,6 +23297,9 @@ Nothing was converted.`
             ifExists: settings.ifExists
           });
           results.push(result);
+          const sha256 = hashes.get(task.source);
+          if (manifests && sha256)
+            await manifests.set(result.destination, task.source, sha256, settingsKey);
           const cost = result.credits === null ? "" : `, ${result.credits === 1 ? "1 credit" : `${result.credits} credits`}`;
           info(
             `Converted ${show(task.source)} \u2192 ${show(result.destination)} (${size(result.bytes)}${cost})`
@@ -23146,10 +23323,13 @@ ${hint}` : ""}`, {
         `${notStarted.length === 1 ? "1 file was" : `${notStarted.length} files were`} not converted after: ${stopped}`
       );
     }
+    await saveManifests(manifests, show);
     const parts = [`${results.length} converted`];
     if (plan.skipped.length) parts.push(`${plan.skipped.length} skipped`);
     if (failed.length) parts.push(`${failed.length} not converted`);
     info(`Converter Studio: ${parts.join(", ")}.`);
+    const sizes = sizeSummary(results);
+    if (sizes) info(sizes);
     setOutputs(results, plan, failed, workspace);
     if (failed.length > 0) {
       setFailed(
@@ -23157,6 +23337,9 @@ ${hint}` : ""}`, {
       );
     }
   } catch (error2) {
+    await saveManifests(manifests, show).catch(
+      (saveError) => warning(`The ${MANIFEST_NAME} files could not be written: ${describe(saveError)}`)
+    );
     setOutputs(results, plan, failed, workspace);
     const { message, hint } = errorText(error2);
     setFailed(error2 instanceof InputError ? message : `${message}${hint ? `

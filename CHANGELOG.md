@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.1.0
+
+- `if-exists: changed`: a file is converted again when its content, `to` or `options` changed since
+  its result was made, and kept otherwise. The action writes a `.converter-studio.json` manifest
+  into each folder of results (the SHA-256 of each result's source, and a hash of `to` and
+  `options` without an archive's `password`); commit it with the results, since file times in a
+  fresh checkout say nothing. The first run with `changed` converts again the existing results that
+  have no record. Manifests are never taken as files to convert, and the `files` output does not
+  list them.
+- The default stays `skip` (an existing result is kept, by its name only), so workflows that use
+  1.0 work as before and write no manifest.
+- The log ends with the size of the converted files before and after, and the credits they cost.
+
 ## 1.0.0
 
 First release.

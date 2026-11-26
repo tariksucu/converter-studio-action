@@ -95,6 +95,45 @@ For AVIF, set `to: avif`. `{"maxKb": 200}` keeps every picture under 200 kB inst
 location) for privacy; `{"keepMetadata": true}` keeps the camera and date, and adding
 `"keepLocation": true` keeps the location too.
 
+### Results that follow their sources (`if-exists: changed`)
+
+The default, `if-exists: skip`, looks at names only: once `photo.webp` exists, it stays, even after
+`photo.jpg` is edited or `options` change. With `if-exists: changed`, a file is converted again
+when its content, `to` or `options` changed since its result was made, and only then:
+
+```yaml
+- name: Convert to WebP
+  uses: tariksucu/converter-studio-action@v1
+  with:
+    api-key: ${{ secrets.CONVERTER_STUDIO_API_KEY }}
+    files: assets/photos/**/*.jpg
+    to: webp
+    options: '{"quality": "balanced"}'
+    output-dir: public/img
+    if-exists: changed
+
+- name: Commit the results and their manifests
+  run: |
+    git add public/img
+    git diff --cached --quiet && exit 0
+    git config user.name 'github-actions[bot]'
+    git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+    git commit -m 'Update WebP pictures'
+    git push
+```
+
+- The action writes a `.converter-studio.json` manifest into each folder of results: for every
+  result, the SHA-256 of the source it was made from and a hash of `to` and `options` (an
+  archive's `password` is left out). **Commit the manifests with the results** (`git add` the
+  results' folder, as above): a fresh checkout has no other way to tell, since file times there
+  say nothing. Without them, every run converts every file again.
+- The first run with `changed` converts again each existing result that has no record yet. A
+  result that is deleted is converted again; deleting a manifest converts its folder's results
+  again.
+- The manifests hold file names and hashes only. They are never taken as files to convert, and
+  the `files` output does not list them. A site generator that copies dotfiles would publish them
+  with the pictures; leave them out there if you mind.
+
 ### Word documents to PDF on every release
 
 Converts the `.docx` files in `docs/` to PDF and attaches the PDFs to the release that started the
@@ -174,30 +213,33 @@ Use `to: docx` for an editable Word document instead. `ocrLanguage` can also nam
 
 ## Inputs
 
-| Input         | Required | Default                        | Description                                                                                                                                                                          |
-| ------------- | -------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `api-key`     | yes      |                                | Your Converter Studio API key. Pass it from a secret: `${{ secrets.CONVERTER_STUDIO_API_KEY }}`.                                                                                     |
-| `files`       | yes      |                                | Paths and glob patterns relative to the workspace, one a line. `**` matches any folders, a line that starts with `!` leaves files out, a folder means every file in it.              |
-| `to`          | yes      |                                | The format to convert to: a format such as `webp`, `avif`, `jpg`, `png`, `pdf`, `docx`, `txt`, `mp4`, `mp3`, or an extension such as `jpeg`.                                         |
-| `options`     | no       |                                | Conversion options as a JSON object, as the API takes them, for example `{"quality": "small"}`. Options that do not apply to a conversion are left out.                              |
-| `output-dir`  | no       | next to each source            | Where to write the results. They keep their folders below the patterns' common folder: `docs/**/*.docx` with `output-dir: pdf` turns `docs/a/b.docx` into `pdf/a/b.pdf`.             |
-| `if-exists`   | no       | `skip`                         | When a result's file already exists: `skip` keeps it and does not convert that file (no credits spent), `overwrite` replaces it, `fail` stops the step before anything is converted. |
-| `concurrency` | no       | `4`                            | How many files to convert at once, from 1 to 10.                                                                                                                                     |
-| `max-credits` | no       | `20`                           | The most credits one file may cost. A file that would cost more is not converted and nothing is charged for it.                                                                      |
-| `base-url`    | no       | `https://converter.studio/api` | The address of the Converter Studio API.                                                                                                                                             |
+| Input         | Required | Default                        | Description                                                                                                                                                                                                                                                                                                                                             |
+| ------------- | -------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `api-key`     | yes      |                                | Your Converter Studio API key. Pass it from a secret: `${{ secrets.CONVERTER_STUDIO_API_KEY }}`.                                                                                                                                                                                                                                                        |
+| `files`       | yes      |                                | Paths and glob patterns relative to the workspace, one a line. `**` matches any folders, a line that starts with `!` leaves files out, a folder means every file in it.                                                                                                                                                                                 |
+| `to`          | yes      |                                | The format to convert to: a format such as `webp`, `avif`, `jpg`, `png`, `pdf`, `docx`, `txt`, `mp4`, `mp3`, or an extension such as `jpeg`.                                                                                                                                                                                                            |
+| `options`     | no       |                                | Conversion options as a JSON object, as the API takes them, for example `{"quality": "small"}`. Options that do not apply to a conversion are left out.                                                                                                                                                                                                 |
+| `output-dir`  | no       | next to each source            | Where to write the results. They keep their folders below the patterns' common folder: `docs/**/*.docx` with `output-dir: pdf` turns `docs/a/b.docx` into `pdf/a/b.pdf`.                                                                                                                                                                                |
+| `if-exists`   | no       | `skip`                         | When a result's file already exists: `skip` keeps it and does not convert that file (no credits spent; by its name only), `overwrite` replaces it, `fail` stops the step before anything is converted, `changed` converts it again only when its source, `to` or `options` changed (see [above](#results-that-follow-their-sources-if-exists-changed)). |
+| `concurrency` | no       | `4`                            | How many files to convert at once, from 1 to 10.                                                                                                                                                                                                                                                                                                        |
+| `max-credits` | no       | `20`                           | The most credits one file may cost. A file that would cost more is not converted and nothing is charged for it.                                                                                                                                                                                                                                         |
+| `base-url`    | no       | `https://converter.studio/api` | The address of the Converter Studio API.                                                                                                                                                                                                                                                                                                                |
 
 ## Outputs
 
-| Output    | Description                                                                                                              |
-| --------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `files`   | The files that were written, one path a line, relative to the workspace (absolute when outside it).                      |
-| `map`     | A JSON object from each converted source to its result: `{"images/a.png": "images/a.webp"}`. Read it with `fromJSON(…)`. |
-| `skipped` | A JSON array of the sources that were not converted because their result already existed.                                |
-| `failed`  | A JSON array of the sources that could not be converted.                                                                 |
+| Output    | Description                                                                                                                     |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `files`   | The results that were written, one path a line, relative to the workspace (absolute when outside it).                           |
+| `map`     | A JSON object from each converted source to its result: `{"images/a.png": "images/a.webp"}`. Read it with `fromJSON(…)`.        |
+| `skipped` | A JSON array of the sources that were not converted because their result already existed (and, with `changed`, was up to date). |
+| `failed`  | A JSON array of the sources that could not be converted.                                                                        |
 
 Outputs are set even when the step fails, for steps that run with `if: always()`. Pass them to a
 shell through `env:`, as in the recipes, rather than writing `${{ … }}` into a script: file names
 can hold characters a shell would read as code.
+
+The log ends with what was done and, when files were converted, their size before and after and
+the credits they cost: `Sizes: 12.4 MB of sources → 3.1 MB of results (-75%), 18 credits.`
 
 ## How results are named
 

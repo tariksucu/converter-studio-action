@@ -1,7 +1,10 @@
 import { resolve } from 'node:path';
 
-/** What to do when a result's file already exists. */
-export const IF_EXISTS = ['skip', 'overwrite', 'fail'] as const;
+/**
+ * What to do when a result's file already exists: keep it, replace it, stop, or replace it only
+ * when its source or the settings changed since it was made (`manifest.ts`).
+ */
+export const IF_EXISTS = ['skip', 'overwrite', 'fail', 'changed'] as const;
 export type IfExists = (typeof IF_EXISTS)[number];
 
 export const DEFAULT_BASE_URL = 'https://converter.studio/api';

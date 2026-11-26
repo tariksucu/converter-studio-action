@@ -24,6 +24,8 @@ async function put(files: Record<string, string>) {
 const run = (inputs: Record<string, string>) =>
   runAction(ws, { 'api-key': STUB_KEY, 'base-url': stub.base, ...inputs });
 
+const readJson = async (path: string): Promise<unknown> => JSON.parse(await readFile(path, 'utf8'));
+
 /** The `::error …::message` lines of a run. */
 const errors = (stdout: string) =>
   stdout
@@ -139,6 +141,84 @@ describe('the bundled action, run like a runner runs it', () => {
     );
     assert.equal(stub.calls.filter((c) => c.method !== 'GET').length, 0);
     assert.equal(existsSync(join(ws, 'a.webp')), false);
+  });
+
+  it('converts again only what changed since the last run (if-exists: changed)', async () => {
+    const uploads = () => stub.calls.filter((c) => c.method === 'PUT').length;
+    await put({ 'img/a.png': 'a', 'img/b.png': 'b', 'img/deep/c.png': 'c' });
+    // The folder with its results left out: the manifests the folder holds are left out anyway.
+    const inputs = { files: 'img\n!img/**/*.webp', to: 'webp', 'if-exists': 'changed' };
+
+    // First run: everything, and a manifest next to the results.
+    const first = await run(inputs);
+    assert.equal(first.code, 0, first.stdout);
+    assert.equal(uploads(), 3);
+    const manifest = (await readJson(join(ws, 'img/.converter-studio.json'))) as {
+      results: Record<string, { source: string }>;
+    };
+    assert.deepEqual(Object.keys(manifest.results), ['a.webp', 'b.webp']);
+    assert.equal(manifest.results['a.webp'].source, 'a.png');
+    assert.ok(existsSync(join(ws, 'img/deep/.converter-studio.json')));
+    assert.match(first.stdout, /commit them with the results/);
+
+    // Nothing changed (as in a fresh checkout, where file times say nothing): nothing to do. The
+    // manifests are not taken for sources, though the folder pattern finds them.
+    stub.calls.length = 0;
+    const second = await run(inputs);
+    assert.equal(second.code, 0, second.stdout);
+    assert.equal(uploads(), 0);
+    assert.deepEqual(JSON.parse(second.outputs.skipped), [
+      'img/a.png',
+      'img/b.png',
+      'img/deep/c.png',
+    ]);
+    assert.match(second.stdout, /Skipped img\/a\.png: img\/a\.webp is up to date/);
+
+    // An edited source: that file only.
+    await put({ 'img/b.png': 'b, edited' });
+    stub.calls.length = 0;
+    const third = await run(inputs);
+    assert.equal(third.code, 0, third.stdout);
+    assert.equal(third.outputs.files, 'img/b.webp');
+    assert.equal(await readFile(join(ws, 'img/b.webp'), 'utf8'), 'converted to webp: b, edited');
+    assert.match(third.stdout, /Converting img\/b\.png again \(img\/b\.webp: its source changed\)/);
+
+    // Other options: every file.
+    stub.calls.length = 0;
+    const fourth = await run({ ...inputs, options: '{"quality": "small"}' });
+    assert.equal(fourth.code, 0, fourth.stdout);
+    assert.equal(uploads(), 3);
+    assert.match(fourth.stdout, /'to' or 'options' changed/);
+  });
+
+  it('converts a result with no record again, once (if-exists: changed)', async () => {
+    await put({ 'a.png': 'a', 'a.webp': 'made before, by hand' });
+    const result = await run({ files: 'a.png', to: 'webp', 'if-exists': 'changed' });
+    assert.equal(result.code, 0, result.stdout);
+    assert.equal(await readFile(join(ws, 'a.webp'), 'utf8'), 'converted to webp: a');
+    assert.match(result.stdout, /has no record of what it was made from/);
+    stub.calls.length = 0;
+    const again = await run({ files: 'a.png', to: 'webp', 'if-exists': 'changed' });
+    assert.equal(again.code, 0, again.stdout);
+    assert.equal(stub.calls.filter((c) => c.method === 'PUT').length, 0);
+  });
+
+  it('writes no manifest unless asked to (if-exists: skip, the default)', async () => {
+    await put({ 'a.png': 'a' });
+    const result = await run({ files: '.', to: 'webp' });
+    assert.equal(result.code, 0, result.stdout);
+    assert.equal(existsSync(join(ws, '.converter-studio.json')), false);
+  });
+
+  it('ends with the sizes before and after, and the credits', async () => {
+    await put({ 'a.png': 'aaaaaaaaaa', 'b.png': 'bbbbbbbbbb', 'c.png': 'c', 'c.webp': 'old' });
+    const result = await run({ files: '*.png', to: 'webp' });
+    assert.equal(result.code, 0, result.stdout);
+    // "converted to webp: " + the source: 29 bytes from 10.
+    assert.match(
+      result.stdout,
+      /Converter Studio: 2 converted, 1 skipped\.\nSizes: 20 B of sources → 58 B of results \(\+190%\), 2 credits\.\n/,
+    );
   });
 
   it("fails once, with the API's message, for a wrong key, and never prints the key", async () => {
